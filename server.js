@@ -17,11 +17,10 @@ app.use(cors({
 app.use(express.json());
 
 const connection = mysql.createConnection({
-  host : "db4free.net",
-  user : "vcentry",
-  password : "test@123",
-  database : "travelix",
-  port : 3306
+  host: "localhost",
+  user: "root",
+  password: "",
+  database : "tarun",
 });
 
 connection.connect((error) => {
