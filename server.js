@@ -202,7 +202,7 @@ app.put("/products/:id", (request, response) => {
     if (error) {
       response.status(500).send(error);
     } else {
-      // response.status(200).send(result);
+      response.status(200).send(result);
     }
   });
 });
