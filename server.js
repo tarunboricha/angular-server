@@ -2,7 +2,7 @@ import express from "express";
 import mysql from "mysql";
 import cors from "cors";
 import http from "http";
-import bodyParser from "body-parser"
+import bodyParser from "body-parser";
 
 const app = express();
 const server = http.createServer(app);
@@ -47,7 +47,7 @@ app.get("/products", (request, response) => {
 })
 
 app.get("/popular_products", (request, response) => {
-  const sql_query = "INSERT INTO visitors VALUES (0);"
+  const sql_query = "INSERT INTO visitors VALUES ();"
   connection.query(sql_query, (error, result) => {
     if (error) {
       response.status(500).send(error);
@@ -59,7 +59,7 @@ app.get("/popular_products", (request, response) => {
 })
 
 app.get("/trending_products", (request, response) => {
-  const sql_query = "SELECT * FROM products LIMIT 8;"
+  const sql_query = "SELECT * FROM products WHERE trending = TRUE;"
 
   connection.query(sql_query, (error, result) => {
     if (error) {
@@ -68,8 +68,23 @@ app.get("/trending_products", (request, response) => {
     else {
       response.status(200).send(result);
     }
-  })
-})
+  });
+});
+
+app.get("/similar_products/:ptype/:id", (request, response) => {
+  let productType = request.params.ptype;
+  let pid = request.params.id;
+  const sql_query = "SELECT * FROM products WHERE productType = ? AND id <> ? ORDER BY RAND() LIMIT 4;";
+
+  connection.query(sql_query,[productType, pid], (error, result) => {
+    if (error) {
+      response.status(500).send(error);
+    }
+    else {
+      response.status(200).send(result);
+    }
+  });
+});
 
 app.post("/products", (request, response) => {
   request.header("ngrok-skip-browser-warning", "69420");
@@ -161,8 +176,8 @@ app.get("/Cart/:id", (request, response) => {
     else {
       response.status(200).send(result);
     }
-  })
-})
+  });
+});
 
 app.post("/users", (request, response) => {
   const sql_query = "INSERT INTO users VALUES (?,?,?,?);"
@@ -174,9 +189,36 @@ app.post("/users", (request, response) => {
     else {
       response.status(200).send(result);
     }
-  })
-})
+  });
+});
 
+app.put("/addtrendingProducts/:id", (request, response) => {
+  const pid = request.params.id;
+  const sql_query = `UPDATE products SET trending = TRUE WHERE id = ${pid};`;
+  console.log(sql_query);
+  connection.query(sql_query, [pid], (error, result) => {
+    if(error) {
+      response.status(500).send(error);
+    }
+    else {
+      response.status(200).send(result);
+    }
+  });
+});
+
+app.put("/removetrendingProducts/:id", (request, response) => {
+  const pid = request.params.id;
+  const sql_query = `UPDATE products SET trending = FALSE WHERE id = ${pid};`;
+  console.log(sql_query);
+  connection.query(sql_query, [pid], (error, result) => {
+    if(error) {
+      response.status(500).send(error);
+    }
+    else {
+      response.status(200).send(result);
+    }
+  });
+});
 
 
 app.get("/users/:email/:password", (request, response) => {
@@ -245,6 +287,19 @@ app.get("/products/:id", (request, response) => {
     }
   });
 });
+
+app.get("/persons", (request, response) => {
+  const sql_query = "SELECT * from person";
+  connection.query(sql_query, (error, result) => {
+    if(error) {
+      response.status(500).send(error);
+    }
+    else {
+      response.status(200).send(result);
+    }
+  });
+});
+
 
 app.put("/products/:id", (request, response) => {
   const sql_query = "UPDATE products SET productName = ?,productPrice = ?,productType = ?,productColor = ?,productDisc = ?,productURL = ? WHERE id = ?;"
