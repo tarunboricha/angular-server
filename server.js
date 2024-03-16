@@ -3,9 +3,11 @@ import mysql from "mysql";
 import cors from "cors";
 import http from "http";
 import bodyParser from "body-parser";
+import natural from "natural";
 
 const app = express();
 const server = http.createServer(app);
+const tokenizer = new natural.WordTokenizer();
 
 app.use(bodyParser.urlencoded({ extended: true }));
 
@@ -30,6 +32,84 @@ connection.connect((error) => {
   else {
     console.log("Node js server is connected to Online MySQL server");
   }
+});
+
+
+const dictionary = [];
+const queryProductTypes = "SELECT DISTINCT productType FROM products";
+connection.query(queryProductTypes, (error, results) => {
+  if (error) {
+    console.error("Error fetching distinct product types:", error);
+    return;
+  }
+  results.forEach((row) => {
+    dictionary.push(row.productType);
+  });
+
+  const queryProductColors = "SELECT DISTINCT LOWER(REGEXP_REPLACE(productColor, '[^a-zA-Z0-9]', '')) AS productColor FROM products";
+  connection.query(queryProductColors, (error, results) => {
+    if (error) {
+      console.error("Error fetching distinct product colors:", error);
+      return;
+    }
+    results.forEach((row) => {
+      dictionary.push(row.productColor);
+    });
+
+    const queryProductNames = "SELECT DISTINCT LOWER(REGEXP_REPLACE(productName, '[^a-zA-Z0-9]', '')) AS productName FROM products";
+    connection.query(queryProductNames, (error, results) => {
+      if (error) {
+        console.error("Error fetching distinct product names:", error);
+        return;
+      }
+      results.forEach((row) => {
+        dictionary.push(row.productName);
+      });
+
+      console.log(dictionary);
+      const spellchecker = new natural.Spellcheck(dictionary);
+
+      app.get("/search", (request, response) => {
+        const searchData = request.query.query;
+        const isCorrection = request.query.correction;
+        console.log(isCorrection);
+        const searchTerms = tokenizer.tokenize(searchData);
+        let correctedQuery = '';
+        let whereClause = '';
+
+        searchTerms.forEach((term, index) => {
+          if (isCorrection === "true") {
+            const isCorrectlySpelled = spellchecker.isCorrect(term);
+            if (!isCorrectlySpelled) {
+              const suggestions = spellchecker.getCorrections(term, 2);
+              term = suggestions.length > 0 ? suggestions[0] : term;
+            }
+          }
+
+          correctedQuery += term;
+          whereClause += `(productType LIKE '${term}' OR LOWER(REGEXP_REPLACE(productName, '[^a-zA-Z0-9]', '')) LIKE '%${term}%' OR productColor LIKE '%${term}%')`;
+
+          if (index < searchTerms.length - 1) {
+            correctedQuery += ' ';
+            whereClause += ' AND ';
+          }
+        });
+
+        const query = `SELECT * FROM products WHERE ${whereClause}`;
+        console.log("Original Query:", searchData);
+        console.log("Corrected Query:", correctedQuery);
+        // console.log("SQL Query:", query);
+
+        connection.query(query, (error, result) => {
+          if (error) {
+            response.status(500).send(error);
+          } else {
+            response.status(200).send({ correctedQuery, result: result });
+          }
+        });
+      });
+    });
+  });
 });
 
 
@@ -76,7 +156,7 @@ app.get("/similar_products/:ptype/:id", (request, response) => {
   let pid = request.params.id;
   const sql_query = "SELECT * FROM products WHERE productType = ? AND id <> ? ORDER BY RAND() LIMIT 4;";
 
-  connection.query(sql_query,[productType, pid], (error, result) => {
+  connection.query(sql_query, [productType, pid], (error, result) => {
     if (error) {
       response.status(500).send(error);
     }
@@ -88,7 +168,7 @@ app.get("/similar_products/:ptype/:id", (request, response) => {
 
 app.post("/products", (request, response) => {
   request.header("ngrok-skip-browser-warning", "69420");
-  const sql_query = "INSERT INTO products VALUES (?,?,?,?,?,?,?);"
+  const sql_query = "INSERT INTO products VALUES (?,?,?,?,?,?,?, 0);"
   console.log(sql_query);
   connection.query(sql_query, [request.body.id, request.body.productName, request.body.productPrice, request.body.productType, request.body.productColor, request.body.productDisc, request.body.productURL], (error, result) => {
     if (error) {
@@ -97,11 +177,11 @@ app.post("/products", (request, response) => {
     else {
       response.status(200).send(result);
     }
-  })
-})
+  });
+});
 
 app.post("/Cart", (request, response) => {
-  const sql_query = "INSERT INTO cart VALUES (?,?,?,?)"
+  const sql_query = "INSERT INTO cart (id, productID, productQuantity, productSize, userID, savelater) VALUES (0, ?,?,?,?, 0) ON DUPLICATE KEY UPDATE productID = VALUES(productID), productQuantity = VALUES(productQuantity), productSize = VALUES(productSize), userID = VALUES(userID), savelater = 0;"
   console.log(sql_query);
   connection.query(sql_query, [request.body.productID, request.body.productQuantity, request.body.productSize, request.body.userID], (error, result) => {
     if (error) {
@@ -115,37 +195,20 @@ app.post("/Cart", (request, response) => {
 
 app.post("/Carts", (request, response) => {
 
-  const sqlQuery = `SELECT * FROM cart WHERE userID = ${request.body[0].userID}`;
-  connection.query(sqlQuery, (error, result) => {
+  let data = '';
+  for (let i = 0; i < request.body.length; i++) {
+    data = data + `(${request.body[i].id}, ${request.body[i].productID}, ${request.body[i].productQuantity}, ${request.body[i].productSize}, ${request.body[i].userID}, ${request.body[i].savelater})`;
+    if (i != request.body.length - 1) {
+      data = data + ",";
+    }
+  }
+  const sql_query = "INSERT INTO cart (id, productID, productQuantity, productSize, userID, savelater) VALUES " + data + "ON DUPLICATE KEY UPDATE id = VALUES(id), productID = VALUES(productID), productQuantity = VALUES(productQuantity), productSize = VALUES(productSize), userID = VALUES(userID), savelater =  VALUES(savelater);";
+  connection.query(sql_query, (error, result) => {
     if (error) {
       response.status(500).send(error);
     }
     else {
-      function removeDuplicates(arr1, arr2) {
-        const uniqueIds = new Set(arr2.map((item) => item.productID));
-        return arr1.filter((item) => !uniqueIds.has(item.productID));
-      }
-
-      // Remove objects with matching IDs from array1
-      const uniqueArray = removeDuplicates(request.body, result);
-      console.log(uniqueArray);
-      let data = "";
-      for (let i = 0; i < uniqueArray.length; i++) {
-        data = data + "(" + uniqueArray[i].productID + "," + uniqueArray[i].productQuantity + "," + uniqueArray[i].productSize + "," + uniqueArray[i].userID + ")";
-        if (i != uniqueArray.length - 1) {
-          data = data + ",";
-        }
-      }
-      const sql_query = "INSERT INTO cart VALUES " + data;
-      console.log(sql_query);
-      connection.query(sql_query, (error, result) => {
-        if (error) {
-          response.status(500).send(error);
-        }
-        else {
-          response.status(200).send(result);
-        }
-      })
+      response.status(200).send(result);
     }
   })
 })
@@ -197,7 +260,7 @@ app.put("/addtrendingProducts/:id", (request, response) => {
   const sql_query = `UPDATE products SET trending = TRUE WHERE id = ${pid};`;
   console.log(sql_query);
   connection.query(sql_query, [pid], (error, result) => {
-    if(error) {
+    if (error) {
       response.status(500).send(error);
     }
     else {
@@ -211,7 +274,7 @@ app.put("/removetrendingProducts/:id", (request, response) => {
   const sql_query = `UPDATE products SET trending = FALSE WHERE id = ${pid};`;
   console.log(sql_query);
   connection.query(sql_query, [pid], (error, result) => {
-    if(error) {
+    if (error) {
       response.status(500).send(error);
     }
     else {
@@ -220,6 +283,31 @@ app.put("/removetrendingProducts/:id", (request, response) => {
   });
 });
 
+app.put("/cart/savelater", (request, response) => {
+  const sql_query = `UPDATE cart SET savelater = TRUE WHERE userID = ${request.body.userID} AND productID = ${request.body.pID};`;
+  console.log(sql_query);
+  connection.query(sql_query, (error, result) => {
+    if (error) {
+      response.status(500).send(error);
+    }
+    else {
+      response.status(200).send(result);
+    }
+  });
+});
+
+app.put("/cart/movetocart", (request, response) => {
+  const sql_query = `UPDATE cart SET savelater = FALSE WHERE userID = ${request.body.userID} AND productID = ${request.body.pID};`;
+  console.log(sql_query);
+  connection.query(sql_query, (error, result) => {
+    if (error) {
+      response.status(500).send(error);
+    }
+    else {
+      response.status(200).send(result);
+    }
+  });
+});
 
 app.get("/users/:email/:password", (request, response) => {
   const email = request.params.email;
@@ -247,19 +335,7 @@ app.get("/products/productType/:ptype", (request, response) => {
   });
 });
 
-app.get("/search/:query", (request, response) => {
-  const queryy = request.params.query;
-  const sql = `SELECT * FROM products WHERE LOWER(REGEXP_REPLACE(productName, '[^a-zA-Z0-9]', '')) LIKE ? OR LOWER(REGEXP_REPLACE(productType, '[^a-zA-Z0-9]', '')) LIKE ? OR LOWER(REGEXP_REPLACE(productColor, '[^a-zA-Z0-9]', '')) LIKE ?`;
-  const params = [`%${queryy}%`, `${queryy}`, `%${queryy}%`];
-  // const sql_query = `SELECT * FROM products WHERE LOWER(REGEXP_REPLACE(productName, '[^a-zA-Z0-9]', '')) LIKE '%${queryy}%'`
-  connection.query(sql, params, (error, result) => {
-    if (error) {
-      response.status(500).send(error);
-    } else {
-      response.status(200).send(result);
-    }
-  });
-});
+
 
 app.get("/seller/:email/:password", (request, response) => {
   const email = request.params.email;
@@ -291,7 +367,7 @@ app.get("/products/:id", (request, response) => {
 app.get("/persons", (request, response) => {
   const sql_query = "SELECT * from person";
   connection.query(sql_query, (error, result) => {
-    if(error) {
+    if (error) {
       response.status(500).send(error);
     }
     else {
