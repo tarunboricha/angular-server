@@ -37,7 +37,7 @@ connection.connect((error) => {
 });
 
 
-const dictionary = [];
+const dictionary = ['t-shirt'];
 const queryProductTypes = "SELECT DISTINCT productType FROM products";
 connection.query(queryProductTypes, (error, results) => {
   if (error) {
@@ -77,7 +77,7 @@ connection.query(queryProductTypes, (error, results) => {
       const spellchecker = new natural.Spellcheck(dictionary);
 
       app.get("/search", (request, response) => {
-        const searchData = request.query.query;
+        const searchData = request.query.query.toLowerCase().replace(/[^a-zA-Z0-9 ]/g, '');
         const isCorrection = request.query.correction;
         console.log(isCorrection);
         const searchTerms = tokenizer.tokenize(searchData);
