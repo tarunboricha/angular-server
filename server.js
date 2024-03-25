@@ -4,7 +4,9 @@ import cors from "cors";
 import http from "http";
 import bodyParser from "body-parser";
 import natural from "natural";
+import { config } from 'dotenv'
 
+config();
 const app = express();
 const server = http.createServer(app);
 const tokenizer = new natural.WordTokenizer();
@@ -56,7 +58,12 @@ connection.query(queryProductTypes, (error, results) => {
       dictionary.push(row.productColor);
     });
 
-    const queryProductNames = "SELECT DISTINCT LOWER(REGEXP_REPLACE(productName, '[^a-zA-Z0-9]', '')) AS productName FROM products";
+    const queryProductNames = `SELECT DISTINCT LOWER(REGEXP_REPLACE(SUBSTRING_INDEX(SUBSTRING_INDEX(productName, ' ', numbers.n), ' ', -1), '[^a-zA-Z0-9]', '')) AS productName
+    FROM products
+    JOIN (
+        SELECT 1 n UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4
+        -- Add more numbers based on the maximum number of words in your product names
+    ) numbers ON CHAR_LENGTH(productName) - CHAR_LENGTH(REPLACE(productName, ' ', '')) >= n - 1;`;
     connection.query(queryProductNames, (error, results) => {
       if (error) {
         console.error("Error fetching distinct product names:", error);
@@ -87,7 +94,7 @@ connection.query(queryProductTypes, (error, results) => {
           }
 
           correctedQuery += term;
-          whereClause += `(productType LIKE '${term}' OR LOWER(REGEXP_REPLACE(productName, '[^a-zA-Z0-9]', '')) LIKE '%${term}%' OR productColor LIKE '%${term}%')`;
+          whereClause += `(productType LIKE '${term}' OR LOWER(REGEXP_REPLACE(productName, '[^a-zA-Z0-9 ]', '')) LIKE '%${term}%' OR LOWER(REGEXP_REPLACE(productColor, '[^a-zA-Z0-9 ]', '')) LIKE '%${term}%')`;
 
           if (index < searchTerms.length - 1) {
             correctedQuery += ' ';
@@ -168,9 +175,9 @@ app.get("/similar_products/:ptype/:id", (request, response) => {
 
 app.post("/products", (request, response) => {
   request.header("ngrok-skip-browser-warning", "69420");
-  const sql_query = "INSERT INTO products VALUES (?,?,?,?,?,?,?, 0);"
+  const sql_query = "INSERT INTO products VALUES (0,?,?,?,?,?,?, 0, 3);"
   console.log(sql_query);
-  connection.query(sql_query, [request.body.id, request.body.productName, request.body.productPrice, request.body.productType, request.body.productColor, request.body.productDisc, request.body.productURL], (error, result) => {
+  connection.query(sql_query, [request.body.productName, request.body.productPrice, request.body.productType, request.body.productColor, request.body.productDisc, request.body.productURL], (error, result) => {
     if (error) {
       response.status(500).send(error);
     }
@@ -197,12 +204,13 @@ app.post("/Carts", (request, response) => {
 
   let data = '';
   for (let i = 0; i < request.body.length; i++) {
-    data = data + `(${request.body[i].id}, ${request.body[i].productID}, ${request.body[i].productQuantity}, ${request.body[i].productSize}, ${request.body[i].userID}, ${request.body[i].savelater})`;
+    data = data + `(0, ${request.body[i].productID}, ${request.body[i].productQuantity}, ${request.body[i].productSize}, ${request.body[i].userID}, ${request.body[i].savelater})`;
     if (i != request.body.length - 1) {
       data = data + ",";
     }
   }
   const sql_query = "INSERT INTO cart (id, productID, productQuantity, productSize, userID, savelater) VALUES " + data + "ON DUPLICATE KEY UPDATE id = VALUES(id), productID = VALUES(productID), productQuantity = VALUES(productQuantity), productSize = VALUES(productSize), userID = VALUES(userID), savelater =  VALUES(savelater);";
+  console.log(sql_query);
   connection.query(sql_query, (error, result) => {
     if (error) {
       response.status(500).send(error);
@@ -243,9 +251,9 @@ app.get("/Cart/:id", (request, response) => {
 });
 
 app.post("/users", (request, response) => {
-  const sql_query = "INSERT INTO users VALUES (?,?,?,?);"
+  const sql_query = `INSERT INTO users VALUES (0,'${request.body.email}','${request.body.firstname}','${request.body.password}','${request.body.lastname}');`;
   console.log(sql_query);
-  connection.query(sql_query, [request.body.userID, request.body.email, request.body.name, request.body.password], (error, result) => {
+  connection.query(sql_query, [,], (error, result) => {
     if (error) {
       response.status(500).send(error);
     }
@@ -378,6 +386,7 @@ app.get("/persons", (request, response) => {
 
 
 app.put("/products/:id", (request, response) => {
+  console.log(request.body);
   const sql_query = "UPDATE products SET productName = ?,productPrice = ?,productType = ?,productColor = ?,productDisc = ?,productURL = ? WHERE id = ?;"
   console.log(sql_query);
   connection.query(sql_query, [request.body.productName, request.body.productPrice, request.body.productType, request.body.productColor, request.body.productDisc, request.body.productURL, request.body.id], (error, result) => {
@@ -406,7 +415,7 @@ app.get("/", (request, response) => {
   response.send("<h1>Angular Server is running perfectly..</h1>")
 });
 
-const port = process.env.PORT || 5000;
+const port = process.env.PORT;
 server.listen(port, () => {
   console.log("Node js server is running");
 });
